@@ -30,19 +30,14 @@ class TestAPIIntegration:
         mock_instance.setup_models.assert_called_once()
         mock_instance.setup_database.assert_called_once()
 
-    @patch("api.RAGPipeline")
-    def test_end_to_end_query_flow(self, mock_pipeline_class):
+    def test_end_to_end_query_flow(self, app_with_mock):
         """Test complete query flow from API to response"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         mock_response = Mock()
         mock_response.content = "Complete answer to question"
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": [
                 {"source": "document1.pdf", "page": 5, "score": 0.92},
@@ -50,10 +45,6 @@ class TestAPIIntegration:
             ],
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -73,7 +64,7 @@ class TestAPIIntegration:
         assert len(data["sources"]) == 2
 
         # Verify pipeline was called correctly
-        mock_instance.query_pipeline.assert_called_once_with(
+        mock_pipeline.query_pipeline.assert_called_once_with(
             query="What is machine learning?", k=5, verbose=False
         )
 
@@ -81,27 +72,18 @@ class TestAPIIntegration:
 class TestStressLoad:
     """Stress and load testing"""
 
-    @patch("api.RAGPipeline")
-    def test_concurrent_requests_stress(self, mock_pipeline_class):
+    def test_concurrent_requests_stress(self, app_with_mock):
         """Test system under concurrent load"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         mock_response = Mock()
         mock_response.content = "Answer"
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": [],
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -117,27 +99,18 @@ class TestStressLoad:
         success_count = sum(1 for r in results if r.status_code == 200)
         assert success_count == 50
 
-    @patch("api.RAGPipeline")
-    def test_rapid_sequential_requests(self, mock_pipeline_class):
+    def test_rapid_sequential_requests(self, app_with_mock):
         """Test rapid sequential requests"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         mock_response = Mock()
         mock_response.content = "Answer"
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": [],
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -146,29 +119,20 @@ class TestStressLoad:
             response = client.post("/query", json={"query": f"Query {i}", "k": 3})
             assert response.status_code == 200
 
-    @patch("api.RAGPipeline")
-    def test_memory_leak_detection(self, mock_pipeline_class):
+    def test_memory_leak_detection(self, app_with_mock):
         """Test for potential memory leaks"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         mock_response = Mock()
         mock_response.content = "A" * 10000  # Large response
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": [
                 {"source": "doc.pdf", "page": i, "score": 0.9} for i in range(100)
             ],
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -183,14 +147,9 @@ class TestStressLoad:
 class TestFailureScenarios:
     """Test various failure scenarios"""
 
-    @patch("api.RAGPipeline")
-    def test_pipeline_timeout(self, mock_pipeline_class):
+    def test_pipeline_timeout(self, app_with_mock):
         """Test handling of pipeline timeout"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         def slow_query(*args, **kwargs):
             time.sleep(0.1)  # Simulate slow query
@@ -198,10 +157,7 @@ class TestFailureScenarios:
             mock_response.content = "Answer"
             return {"answer": mock_response, "sources": [], "retrieved_docs": []}
 
-        mock_instance.query_pipeline = slow_query
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
+        mock_pipeline.query_pipeline = slow_query
 
         client = TestClient(app)
 
@@ -209,14 +165,9 @@ class TestFailureScenarios:
         response = client.post("/query", json={"query": "Test", "k": 3})
         assert response.status_code == 200
 
-    @patch("api.RAGPipeline")
-    def test_intermittent_failures(self, mock_pipeline_class):
+    def test_intermittent_failures(self, app_with_mock):
         """Test handling of intermittent failures"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         call_count = [0]
 
@@ -229,10 +180,7 @@ class TestFailureScenarios:
             mock_response.content = "Answer"
             return {"answer": mock_response, "sources": [], "retrieved_docs": []}
 
-        mock_instance.query_pipeline = intermittent_query
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
+        mock_pipeline.query_pipeline = intermittent_query
 
         client = TestClient(app)
 
@@ -250,14 +198,9 @@ class TestFailureScenarios:
 class TestDataIntegrity:
     """Test data integrity and consistency"""
 
-    @patch("api.RAGPipeline")
-    def test_query_data_preservation(self, mock_pipeline_class):
+    def test_query_data_preservation(self, app_with_mock):
         """Test that query data is preserved correctly"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         def capture_query(*args, **kwargs):
             # Capture what was passed
@@ -265,10 +208,7 @@ class TestDataIntegrity:
             mock_response.content = f"Answer for: {kwargs['query']}"
             return {"answer": mock_response, "sources": [], "retrieved_docs": []}
 
-        mock_instance.query_pipeline = capture_query
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
+        mock_pipeline.query_pipeline = capture_query
 
         client = TestClient(app)
 
@@ -279,14 +219,9 @@ class TestDataIntegrity:
         data = response.json()
         assert data["query"] == test_query
 
-    @patch("api.RAGPipeline")
-    def test_source_data_integrity(self, mock_pipeline_class):
+    def test_source_data_integrity(self, app_with_mock):
         """Test source data is returned correctly"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         test_sources = [
             {"source": "doc1.pdf", "page": 1, "score": 0.95},
@@ -297,15 +232,11 @@ class TestDataIntegrity:
         mock_response = Mock()
         mock_response.content = "Answer"
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": test_sources,
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -320,27 +251,18 @@ class TestDataIntegrity:
 class TestSecurityConsiderations:
     """Test security-related aspects"""
 
-    @patch("api.RAGPipeline")
-    def test_large_payload_handling(self, mock_pipeline_class):
+    def test_large_payload_handling(self, app_with_mock):
         """Test handling of very large payloads"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
+        app, mock_pipeline = app_with_mock
 
         mock_response = Mock()
         mock_response.content = "Answer"
 
-        mock_instance.query_pipeline.return_value = {
+        mock_pipeline.query_pipeline.return_value = {
             "answer": mock_response,
             "sources": [],
             "retrieved_docs": [],
         }
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
@@ -351,18 +273,9 @@ class TestSecurityConsiderations:
         # Should handle or reject gracefully
         assert response.status_code in [200, 413, 422, 500]
 
-    @patch("api.RAGPipeline")
-    def test_malformed_json(self, mock_pipeline_class):
+    def test_malformed_json(self, app_with_mock):
         """Test handling of malformed JSON"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
-
+        app, mock_pipeline = app_with_mock
         client = TestClient(app)
 
         # Send malformed JSON
@@ -377,18 +290,9 @@ class TestSecurityConsiderations:
 class TestProductionReadiness:
     """Test production readiness criteria"""
 
-    @patch("api.RAGPipeline")
-    def test_health_check_reliability(self, mock_pipeline_class):
+    def test_health_check_reliability(self, app_with_mock):
         """Test health check is always available"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
-
+        app, mock_pipeline = app_with_mock
         client = TestClient(app)
 
         # Health check should always work
@@ -396,22 +300,13 @@ class TestProductionReadiness:
             response = client.get("/health")
             assert response.status_code == 200
 
-    @patch("api.RAGPipeline")
-    def test_error_messages_not_exposing_internals(self, mock_pipeline_class):
+    def test_error_messages_not_exposing_internals(self, app_with_mock):
         """Test error messages don't expose internal details"""
-        from fastapi.testclient import TestClient
+        app, mock_pipeline = app_with_mock
 
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
-
-        mock_instance.query_pipeline.side_effect = Exception(
+        mock_pipeline.query_pipeline.side_effect = Exception(
             "Internal error with database connection string: postgresql://user:pass@host"
         )
-
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
 
         client = TestClient(app)
 
