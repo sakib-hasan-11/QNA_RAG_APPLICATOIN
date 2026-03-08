@@ -34,25 +34,18 @@ def app_with_mock(mock_pipeline):
     if "api" in sys.modules:
         del sys.modules["api"]
 
-    # Patch RAGPipeline before importing api
+    # Patch where RAGPipeline is used (api module imports it)
     with patch("src.pipelines.pipeline.RAGPipeline", return_value=mock_pipeline):
         # Import api fresh with patched RAGPipeline
         import api
 
-        # Manually set the pipeline to our mock (for safety)
+        # Manually set pipeline to ensure it's available
         api.pipeline = mock_pipeline
 
-        # Yield both app and mock for tests
-        yield api.app, mock_pipeline
-
-
-@pytest.fixture
-def client(app_with_mock):
-    """Create TestClient with mocked pipeline"""
-    from fastapi.testclient import TestClient
-
-    app, mock_pipeline = app_with_mock
-    return TestClient(app)
+        # Reset mock call counts so we can track startup event calls
+        mock_pipeline.setup_models.reset_mock()
+        mock_pipeline.setup_database.reset_mock()
+        mock_pipeline.query_pipeline.reset_mock()
 
 
 @pytest.fixture(autouse=True)
