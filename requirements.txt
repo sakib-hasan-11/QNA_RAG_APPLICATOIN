@@ -28,3 +28,9 @@ pypdf
 pandas 
 tqdm
 langchain-pinecone
+
+# Web Framework & API
+fastapi
+uvicorn[standard]
+streamlit
+requests
