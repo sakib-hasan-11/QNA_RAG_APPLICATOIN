@@ -4,31 +4,23 @@ Integration tests for full system
 
 import concurrent.futures
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
+from fastapi.testclient import TestClient
 
 
 class TestAPIIntegration:
     """Test API integration with pipeline"""
 
-    @patch("api.RAGPipeline")
-    def test_api_startup_integration(self, mock_pipeline_class):
+    def test_api_startup_integration(self, app_with_mock):
         """Test API startup initializes pipeline correctly"""
-        from fastapi.testclient import TestClient
-
-        mock_instance = Mock()
-        mock_instance.setup_models = Mock()
-        mock_instance.setup_database = Mock()
-        mock_pipeline_class.return_value = mock_instance
-
-        from api import app
-
+        app, mock_pipeline = app_with_mock
         client = TestClient(app)
 
         # Verify pipeline was initialized
-        mock_instance.setup_models.assert_called_once()
-        mock_instance.setup_database.assert_called_once()
+        mock_pipeline.setup_models.assert_called_once()
+        mock_pipeline.setup_database.assert_called_once()
 
     def test_end_to_end_query_flow(self, app_with_mock):
         """Test complete query flow from API to response"""

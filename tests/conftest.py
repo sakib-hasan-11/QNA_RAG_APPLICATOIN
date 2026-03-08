@@ -30,15 +30,16 @@ def mock_pipeline():
 @pytest.fixture
 def app_with_mock(mock_pipeline):
     """Create FastAPI app with mocked pipeline"""
-    with patch("src.pipelines.pipeline.RAGPipeline", return_value=mock_pipeline):
-        # Clear any cached api module
-        if "api" in sys.modules:
-            del sys.modules["api"]
+    # Clear any cached api module
+    if "api" in sys.modules:
+        del sys.modules["api"]
 
-        # Import api fresh
+    # Patch RAGPipeline before importing api
+    with patch("src.pipelines.pipeline.RAGPipeline", return_value=mock_pipeline):
+        # Import api fresh with patched RAGPipeline
         import api
 
-        # Manually set the pipeline to our mock
+        # Manually set the pipeline to our mock (for safety)
         api.pipeline = mock_pipeline
 
         # Yield both app and mock for tests
