@@ -1,0 +1,30 @@
+
+# LangChain Core
+langchain
+langchain-core
+
+# OpenAI Integration
+langchain-openai
+openai
+
+# Anthropic Integration
+langchain-anthropic
+
+
+langchain-text-splitters
+langchain-community
+
+# Environment Variable Management
+python-dotenv
+
+# Machine Learning Utilities
+
+scikit-learn
+
+unstructured 
+tiktoken
+pinecone
+pypdf
+pandas 
+tqdm
+langchain-pinecone
