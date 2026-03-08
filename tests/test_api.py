@@ -3,6 +3,7 @@ Test API endpoints and edge cases
 """
 
 import os
+import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -13,19 +14,32 @@ from fastapi.testclient import TestClient
 def mock_pipeline():
     """Mock RAG pipeline"""
     mock = MagicMock()
-    mock.setup_models = MagicMock()
-    mock.setup_database = MagicMock()
+    mock.setup_models = MagicMock(return_value=None)
+    mock.setup_database = MagicMock(return_value=None)
     mock.query_pipeline = MagicMock()
     return mock
 
 
 @pytest.fixture
-def client(mock_pipeline):
-    """Test client with mocked pipeline"""
-    with patch("api.RAGPipeline", return_value=mock_pipeline):
-        from api import app
+def app_with_mock(mock_pipeline):
+    """Create app with mocked pipeline"""
+    with patch("src.pipelines.pipeline.RAGPipeline", return_value=mock_pipeline):
+        # Clear cached import
+        if "api" in sys.modules:
+            del sys.modules["api"]
 
-        return TestClient(app)
+        import api
+
+        # Manually set pipeline to avoid startup issues
+        api.pipeline = mock_pipeline
+        yield api.app, mock_pipeline
+
+
+@pytest.fixture
+def client(app_with_mock):
+    """Test client"""
+    app, mock_pipeline = app_with_mock
+    return TestClient(app)
 
 
 class TestHealthEndpoints:
@@ -47,8 +61,11 @@ class TestHealthEndpoints:
 class TestQueryEndpoint:
     """Test query endpoint with various scenarios"""
 
-    def test_valid_query(self, client, mock_pipeline):
+    def test_valid_query(self, app_with_mock):
         """Test valid query request"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "This is the answer"
 
@@ -73,8 +90,11 @@ class TestQueryEndpoint:
         # Should still process, validation happens at business logic level
         assert response.status_code in [200, 422, 500]
 
-    def test_query_with_custom_k(self, client, mock_pipeline):
+    def test_query_with_custom_k(self, app_with_mock):
         """Test query with custom k value"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -101,8 +121,11 @@ class TestQueryEndpoint:
         response = client.post("/query", json={"k": 3})
         assert response.status_code == 422
 
-    def test_missing_k_field(self, client, mock_pipeline):
+    def test_missing_k_field(self, app_with_mock):
         """Test missing k field (should use default)"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -119,8 +142,11 @@ class TestQueryEndpoint:
             query="Test", k=3, verbose=False
         )
 
-    def test_large_query_string(self, client, mock_pipeline):
+    def test_large_query_string(self, app_with_mock):
         """Test very large query string"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -134,8 +160,11 @@ class TestQueryEndpoint:
 
         assert response.status_code in [200, 413, 500]
 
-    def test_special_characters_in_query(self, client, mock_pipeline):
+    def test_special_characters_in_query(self, app_with_mock):
         """Test query with special characters"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -150,8 +179,11 @@ class TestQueryEndpoint:
 
         assert response.status_code == 200
 
-    def test_unicode_query(self, client, mock_pipeline):
+    def test_unicode_query(self, app_with_mock):
         """Test query with unicode characters"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -164,8 +196,12 @@ class TestQueryEndpoint:
 
         assert response.status_code == 200
 
-    def test_pipeline_exception(self, client, mock_pipeline):
+    def test_pipeline_exception(self, app_with_mock):
         """Test when pipeline raises exception"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
+        # Set up pipeline to raise exception
         mock_pipeline.query_pipeline.side_effect = Exception("Pipeline error")
 
         response = client.post("/query", json={"query": "Test", "k": 3})
@@ -240,9 +276,12 @@ class TestCORSConfiguration:
 class TestConcurrentRequests:
     """Test concurrent request handling"""
 
-    def test_multiple_concurrent_queries(self, client, mock_pipeline):
+    def test_multiple_concurrent_queries(self, app_with_mock):
         """Test handling multiple concurrent queries"""
         import concurrent.futures
+
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
 
         mock_response = Mock()
         mock_response.content = "Answer"
@@ -266,8 +305,11 @@ class TestConcurrentRequests:
 class TestInputValidation:
     """Test input validation and edge cases"""
 
-    def test_sql_injection_attempt(self, client, mock_pipeline):
+    def test_sql_injection_attempt(self, app_with_mock):
         """Test SQL injection attempt in query"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -283,8 +325,11 @@ class TestInputValidation:
         # Should handle safely
         assert response.status_code == 200
 
-    def test_extremely_large_k_value(self, client, mock_pipeline):
+    def test_extremely_large_k_value(self, app_with_mock):
         """Test extremely large k value"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -298,8 +343,11 @@ class TestInputValidation:
         # Should handle gracefully
         assert response.status_code in [200, 422, 500]
 
-    def test_zero_k_value(self, client, mock_pipeline):
+    def test_zero_k_value(self, app_with_mock):
         """Test k=0"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -317,8 +365,11 @@ class TestInputValidation:
 class TestResponseFormat:
     """Test response format consistency"""
 
-    def test_response_has_required_fields(self, client, mock_pipeline):
+    def test_response_has_required_fields(self, app_with_mock):
         """Test response contains all required fields"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_response = Mock()
         mock_response.content = "Answer"
 
@@ -335,8 +386,11 @@ class TestResponseFormat:
         assert "sources" in data
         assert "query" in data
 
-    def test_answer_without_content_attribute(self, client, mock_pipeline):
+    def test_answer_without_content_attribute(self, app_with_mock):
         """Test when answer doesn't have content attribute"""
+        app, mock_pipeline = app_with_mock
+        client = TestClient(app)
+
         mock_pipeline.query_pipeline.return_value = {
             "answer": "Plain string answer",
             "sources": [],
