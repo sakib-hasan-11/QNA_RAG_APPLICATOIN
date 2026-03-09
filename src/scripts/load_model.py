@@ -1,7 +1,9 @@
 import os
+import sys
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.log import get_logger
 
 logger = get_logger(__name__)
