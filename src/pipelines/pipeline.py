@@ -14,6 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.chunks import divide_chunks
 from scripts.doc_reader import read_doc
+from scripts.docker_ecr import DockerECRManager
 from scripts.load_model import load_embed_model, load_llm
 from scripts.rag_query import rag_query
 from scripts.vector_sender import sent_vector
@@ -81,6 +82,40 @@ class RAGPipeline:
             logger.error(f"Error connecting to database: {e}")
             raise
 
+    def deploy_to_ecr(
+        self, ecr_repo_name="rag-images-container", aws_region=None, root_dir=None
+    ):
+        """
+        Build Docker images and push them to ECR.
+
+        Args:
+            ecr_repo_name (str): ECR repository name (default: rag-images-container)
+            aws_region (str): AWS region (defaults to AWS_REGION env var)
+            root_dir (str): Root directory of the project (auto-detected if None)
+
+        Returns:
+            dict: Contains pushed image URIs and metadata
+        """
+        try:
+            logger.info("\n" + "=" * 80)
+            logger.info("STEP 6: Building and Pushing Docker Images to ECR")
+            logger.info("=" * 80)
+
+            # Initialize Docker ECR Manager
+            docker_manager = DockerECRManager(
+                aws_region=aws_region, ecr_repo_name=ecr_repo_name
+            )
+
+            # Build and push images
+            result = docker_manager.build_and_push_images(root_dir=root_dir)
+
+            logger.info("✓ Docker images successfully deployed to ECR")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error deploying to ECR: {e}")
+            raise
+
     def indexing_pipeline(
         self,
         data_dir=None,
@@ -88,9 +123,12 @@ class RAGPipeline:
         chunk_overlap=80,
         batch_size=100,
         use_s3=False,
+        deploy_images=True,
+        ecr_repo_name="rag-images-container",
+        aws_region=None,
     ):
         """
-        Complete indexing pipeline: Load docs → Chunk → Embed → Store in Pinecone.
+        Complete indexing pipeline: Load docs → Chunk → Embed → Store in Pinecone → Deploy to ECR.
 
         Args:
             data_dir (str): Directory containing PDF files (for local files)
@@ -98,9 +136,12 @@ class RAGPipeline:
             chunk_overlap (int): Overlap between chunks (default: 80)
             batch_size (int): Batch size for vector upserting (default: 100)
             use_s3 (bool): If True, load documents from S3 instead of local directory
+            deploy_images (bool): If True, build and push Docker images to ECR (default: True)
+            ecr_repo_name (str): ECR repository name (default: rag-images-container)
+            aws_region (str): AWS region for ECR (defaults to AWS_REGION env var)
 
         Returns:
-            bool: True if successful, False otherwise
+            dict: Contains success status and ECR deployment info (if deployed)
         """
         try:
             logger.info("\n" + "=" * 80)
@@ -144,11 +185,24 @@ class RAGPipeline:
             logger.info(f"Batch size: {batch_size}")
             sent_vector(chunked_docs, self.embedding_model, batch_size, self.index)
 
+            # Step 6: Deploy Docker images to ECR (optional)
+            ecr_result = None
+            if deploy_images:
+                try:
+                    ecr_result = self.deploy_to_ecr(
+                        ecr_repo_name=ecr_repo_name, aws_region=aws_region
+                    )
+                except Exception as e:
+                    logger.warning(f"ECR deployment failed (continuing anyway): {e}")
+                    logger.warning(
+                        "Pipeline completed successfully, but images were not deployed to ECR"
+                    )
+
             logger.info("\n" + "=" * 80)
             logger.info("✓ INDEXING PIPELINE COMPLETED SUCCESSFULLY!")
             logger.info("=" * 80 + "\n")
 
-            return True
+            return {"success": True, "ecr_deployment": ecr_result}
 
         except Exception as e:
             logger.error(f"Error in indexing pipeline: {e}")
@@ -204,7 +258,14 @@ class RAGPipeline:
 
 
 # Convenience functions for direct use
-def run_indexing(data_dir, chunk_size=800, chunk_overlap=80, batch_size=100):
+def run_indexing(
+    data_dir,
+    chunk_size=800,
+    chunk_overlap=80,
+    batch_size=100,
+    deploy_images=True,
+    ecr_repo_name="rag-images-container",
+):
     """
     Run the indexing pipeline.
 
@@ -213,9 +274,11 @@ def run_indexing(data_dir, chunk_size=800, chunk_overlap=80, batch_size=100):
         chunk_size (int): Size of each chunk (default: 800)
         chunk_overlap (int): Overlap between chunks (default: 80)
         batch_size (int): Batch size for vector upserting (default: 100)
+        deploy_images (bool): If True, build and push Docker images to ECR (default: True)
+        ecr_repo_name (str): ECR repository name (default: rag-images-container)
 
     Returns:
-        bool: True if successful
+        dict: Contains success status and ECR deployment info
     """
     pipeline = RAGPipeline()
     return pipeline.indexing_pipeline(
@@ -223,6 +286,8 @@ def run_indexing(data_dir, chunk_size=800, chunk_overlap=80, batch_size=100):
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         batch_size=batch_size,
+        deploy_images=deploy_images,
+        ecr_repo_name=ecr_repo_name,
     )
 
 
