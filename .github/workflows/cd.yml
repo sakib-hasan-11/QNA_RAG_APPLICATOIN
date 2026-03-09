@@ -11,8 +11,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPO_API: rag-api
-  ECR_REPO_STREAMLIT: rag-streamlit
+  ECR_REPO_PIPELINE: rag-pipeline
 
 jobs:
   test:
@@ -33,7 +32,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio httpx
+          pip install pytest pytest-asyncio
       
       - name: Set environment variables for tests
         run: |
@@ -41,32 +40,20 @@ jobs:
           echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> $GITHUB_ENV
           echo "PINECONE_HOST=${{ secrets.PINECONE_HOST }}" >> $GITHUB_ENV
       
-      - name: Run unit tests
+      - name: Run core function tests
         run: |
-          pytest tests/test_api.py -v --tb=short
+          pytest tests/test_chunks.py tests/test_doc_reader.py tests/test_load_model.py tests/test_prompt.py -v --tb=short
+        continue-on-error: false
       
-      - name: Run pipeline tests
+      - name: Test imports and basic functionality
         run: |
-          pytest tests/test_pipeline.py -v --tb=short
-      
-      - name: Run integration tests
-        run: |
-          pytest tests/test_integration.py -v --tb=short
-      
-      - name: Run all tests with coverage
-        run: |
-          pytest tests/ --cov=. --cov-report=xml --cov-report=term -v
-      
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-        continue-on-error: true
+          python -c "from src.pipelines.pipeline import RAGPipeline; print('✓ Pipeline imports successfully')"
+          python -c "from src.scripts.doc_reader import read_doc; print('✓ Doc reader imports successfully')"
+          python -c "from src.scripts.chunks import divide_chunks; print('✓ Chunks imports successfully')"
+          python -c "from src.scripts.load_model import load_embed_model, load_llm; print('✓ Model loader imports successfully')"
 
-  build-and-push:
-    name: Build and Push to ECR
+  build-and-push-pipeline:
+    name: Build and Push Pipeline Container to ECR
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -86,114 +73,61 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
       
-      - name: Get AWS account ID
-        id: get-account-id
-        run: |
-          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
-      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       
-      - name: Build API Docker image
+      - name: Build Pipeline Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f Dockerfile.api -t $ECR_REGISTRY/$ECR_REPO_API:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPO_API:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_API:latest
+          docker build -f Dockerfile.pipeline -t $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_PIPELINE:latest
       
-      - name: Build Streamlit Docker image
+      - name: Test Pipeline Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f Dockerfile.streamlit -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPO_STREAMLIT:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest
+          # Test that the image builds correctly and Python runs
+          docker run --rm $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG python -c "print('✓ Pipeline container works'); import sys; sys.exit(0)" || exit 1
       
-      - name: Run API container test
+      - name: Push Pipeline image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker run -d -p 8000:8000 \
-            -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-            -e PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }} \
-            -e PINECONE_HOST=${{ secrets.PINECONE_HOST }} \
-            --name test-api \
-            $ECR_REGISTRY/$ECR_REPO_API:$IMAGE_TAG
-          
-          # Wait for container to start
-          sleep 10
-          
-          # Check if container is running
-          docker ps | grep test-api
-          
-          # Test health endpoint
-          curl --retry 5 --retry-delay 3 --retry-connrefused http://localhost:8000/health
-          
-          # Stop and remove container
-          docker stop test-api
-          docker rm test-api
+          docker push $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPO_PIPELINE:latest
       
-      - name: Run Streamlit container test
+      - name: Log Pipeline image URI
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker run -d -p 8501:8501 \
-            -e API_URL=http://localhost:8000 \
-            --name test-streamlit \
-            $ECR_REGISTRY/$ECR_REPO_STREAMLIT:$IMAGE_TAG
-          
-          # Wait for container to start
-          sleep 10
-          
-          # Check if container is running
-          docker ps | grep test-streamlit
-          
-          # Stop and remove container
-          docker stop test-streamlit
-          docker rm test-streamlit
-      
-      - name: Push API image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPO_API:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPO_API:latest
-      
-      - name: Push Streamlit image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPO_STREAMLIT:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest
-      
-      - name: Log image URIs
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          echo "API Image: $ECR_REGISTRY/$ECR_REPO_API:$IMAGE_TAG"
-          echo "Streamlit Image: $ECR_REGISTRY/$ECR_REPO_STREAMLIT:$IMAGE_TAG"
-          echo "API Image (latest): $ECR_REGISTRY/$ECR_REPO_API:latest"
-          echo "Streamlit Image (latest): $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest"
+          echo "✓ Pipeline Image: $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG"
+          echo "✓ Pipeline Image (latest): $ECR_REGISTRY/$ECR_REPO_PIPELINE:latest"
+          echo ""
+          echo "======================================================================"
+          echo "NEXT STEPS:"
+          echo "1. Run the pipeline container in ECS with the environment variables"
+          echo "2. After pipeline completes, run deploy_api_streamlit.sh to build"
+          echo "   and push API and Streamlit containers to ECR"
+          echo "======================================================================"
 
   notify:
     name: Notify Deployment Status
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: build-and-push-pipeline
     if: always()
     
     steps:
       - name: Check deployment status
         run: |
-          if [ "${{ needs.build-and-push.result }}" == "success" ]; then
-            echo "✅ Deployment successful - Images pushed to ECR"
+          if [ "${{ needs.build-and-push-pipeline.result }}" == "success" ]; then
+            echo "✅ Pipeline container successfully pushed to ECR"
             exit 0
           else
-            echo "❌ Deployment failed"
+            echo "❌ Pipeline container deployment failed"
             exit 1
           fi

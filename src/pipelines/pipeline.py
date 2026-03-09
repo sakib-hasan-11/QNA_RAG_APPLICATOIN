@@ -82,16 +82,22 @@ class RAGPipeline:
             raise
 
     def indexing_pipeline(
-        self, data_dir, chunk_size=800, chunk_overlap=80, batch_size=100
+        self,
+        data_dir=None,
+        chunk_size=800,
+        chunk_overlap=80,
+        batch_size=100,
+        use_s3=False,
     ):
         """
         Complete indexing pipeline: Load docs → Chunk → Embed → Store in Pinecone.
 
         Args:
-            data_dir (str): Directory containing PDF files
+            data_dir (str): Directory containing PDF files (for local files)
             chunk_size (int): Size of each chunk (default: 800)
             chunk_overlap (int): Overlap between chunks (default: 80)
             batch_size (int): Batch size for vector upserting (default: 100)
+            use_s3 (bool): If True, load documents from S3 instead of local directory
 
         Returns:
             bool: True if successful, False otherwise
@@ -113,8 +119,12 @@ class RAGPipeline:
             logger.info("=" * 80)
             logger.info("STEP 3: Loading Documents")
             logger.info("=" * 80)
-            logger.info(f"Reading documents from: {data_dir}")
-            docs = read_doc(data_dir)
+            if use_s3:
+                logger.info("Loading documents from S3 bucket")
+                docs = read_doc(use_s3=True)
+            else:
+                logger.info(f"Reading documents from: {data_dir}")
+                docs = read_doc(data_dir, use_s3=False)
             logger.info(f"✓ Loaded {len(docs)} documents")
 
             # Step 4: Chunk documents

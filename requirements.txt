@@ -29,6 +29,9 @@ pandas
 tqdm
 langchain-pinecone
 
+# AWS SDK for S3
+boto3
+
 # Web Framework & API
 fastapi
 uvicorn[standard]

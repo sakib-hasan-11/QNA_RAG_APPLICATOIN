@@ -1,2 +1,6 @@
 .env
 .env.*
+structure.txt
+DEPLOYMENT.md
+WORKFLOW.md
+PIPELINE_USAGE.md
