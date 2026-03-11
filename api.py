@@ -57,13 +57,13 @@ async def root():
     return {"status": "online", "service": "RAG Query API"}
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health():
     """Health check endpoint"""
     return {"status": "healthy"}
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/api/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
     """
     Query the RAG system
