@@ -109,8 +109,8 @@ jobs:
           echo "✓ Pipeline Image: $ECR_REGISTRY/$ECR_REPO_PIPELINE:$IMAGE_TAG"
           echo "✓ Pipeline Image (latest): $ECR_REGISTRY/$ECR_REPO_PIPELINE:latest"
 
-  build-and-push-services:
-    name: Build and Push API & Streamlit to ECR
+  build-and-push-api:
+    name: Build and Push FastAPI Container to ECR
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -133,22 +133,70 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       
-      - name: Build and Push API Docker image
+      - name: Build FastAPI Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "Building API image..."
+          echo "Building FastAPI image..."
           docker build -f Dockerfile.api -t $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG .
           docker tag $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_IMAGES:api-latest
-          
-          echo "Pushing API image to ECR..."
+      
+      - name: Test FastAPI Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Test that the API container starts correctly
+          docker run --rm $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG python -c "from api import app; print('✓ FastAPI app imports successfully')" || exit 1
+      
+      - name: Push FastAPI image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Pushing FastAPI image to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPO_IMAGES:api-latest
-          
-          echo "✓ API Image: $ECR_REGISTRY/$ECR_REPO_IMAGES:api-latest"
       
-      - name: Build and Push Streamlit Docker image
+      - name: Log FastAPI deployment
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "======================================================================"
+          echo "✅ FASTAPI IMAGE DEPLOYED"
+          echo "======================================================================"
+          echo "Repository: $ECR_REPO_IMAGES"
+          echo "Versioned Tag: $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG"
+          echo "Latest Tag:    $ECR_REGISTRY/$ECR_REPO_IMAGES:api-latest"
+          echo "======================================================================"
+
+  build-and-push-streamlit:
+    name: Build and Push Streamlit Container to ECR
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build Streamlit Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
@@ -156,55 +204,75 @@ jobs:
           echo "Building Streamlit image..."
           docker build -f Dockerfile.streamlit -t $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG .
           docker tag $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-latest
-          
+      
+      - name: Test Streamlit Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Test that the Streamlit container has required dependencies
+          docker run --rm $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG python -c "import streamlit; import requests; print('✓ Streamlit app dependencies installed')" || exit 1
+      
+      - name: Push Streamlit image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
           echo "Pushing Streamlit image to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-latest
-          
-          echo "✓ Streamlit Image: $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-latest"
       
-      - name: Log deployment summary
+      - name: Log Streamlit deployment
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           echo "======================================================================"
-          echo "✅ DEPLOYMENT SUCCESSFUL"
+          echo "✅ STREAMLIT IMAGE DEPLOYED"
           echo "======================================================================"
-          echo ""
-          echo "Images pushed to ECR repository: $ECR_REPO_IMAGES"
-          echo ""
-          echo "API Image URIs:"
-          echo "  - Versioned: $ECR_REGISTRY/$ECR_REPO_IMAGES:api-$IMAGE_TAG"
-          echo "  - Latest:    $ECR_REGISTRY/$ECR_REPO_IMAGES:api-latest"
-          echo ""
-          echo "Streamlit Image URIs:"
-          echo "  - Versioned: $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG"
-          echo "  - Latest:    $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-latest"
-          echo ""
-          echo "======================================================================"
-          echo "NEXT STEPS:"
-          echo "1. Update ECS task definitions with the new image URIs"
-          echo "2. Deploy/Update ECS services to use the new images"
+          echo "Repository: $ECR_REPO_IMAGES"
+          echo "Versioned Tag: $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-$IMAGE_TAG"
+          echo "Latest Tag:    $ECR_REGISTRY/$ECR_REPO_IMAGES:streamlit-latest"
           echo "======================================================================"
 
   notify:
     name: Notify Deployment Status
     runs-on: ubuntu-latest
-    needs: [build-and-push-pipeline, build-and-push-services]
+    needs: [build-and-push-pipeline, build-and-push-api, build-and-push-streamlit]
     if: always()
     
     steps:
       - name: Check deployment status
         run: |
-          if [ "${{ needs.build-and-push-pipeline.result }}" == "success" ] && [ "${{ needs.build-and-push-services.result }}" == "success" ]; then
-            echo "✅ All containers successfully pushed to ECR"
-            echo "  - Pipeline container: rag-pipeline"
-            echo "  - API & Streamlit containers: rag-images-container"
+          if [ "${{ needs.build-and-push-pipeline.result }}" == "success" ] && [ "${{ needs.build-and-push-api.result }}" == "success" ] && [ "${{ needs.build-and-push-streamlit.result }}" == "success" ]; then
+            echo "======================================================================"
+            echo "✅ ALL CONTAINERS SUCCESSFULLY PUSHED TO ECR"
+            echo "======================================================================"
+            echo ""
+            echo "1. Pipeline Container: rag-pipeline"
+            echo "   Status: ✓ Success"
+            echo ""
+            echo "2. FastAPI Container: rag-images-container:api-latest"
+            echo "   Status: ✓ Success"
+            echo ""
+            echo "3. Streamlit Container: rag-images-container:streamlit-latest"
+            echo "   Status: ✓ Success"
+            echo ""
+            echo "======================================================================"
+            echo "NEXT STEPS:"
+            echo "1. Update ECS task definitions with the new image URIs"
+            echo "2. Deploy/Update ECS services to use the new images"
+            echo "======================================================================"
             exit 0
           else
-            echo "❌ Some container deployments failed"
-            echo "  - Pipeline: ${{ needs.build-and-push-pipeline.result }}"
-            echo "  - Services: ${{ needs.build-and-push-services.result }}"
+            echo "======================================================================"
+            echo "❌ SOME CONTAINER DEPLOYMENTS FAILED"
+            echo "======================================================================"
+            echo ""
+            echo "Pipeline:  ${{ needs.build-and-push-pipeline.result }}"
+            echo "FastAPI:   ${{ needs.build-and-push-api.result }}"
+            echo "Streamlit: ${{ needs.build-and-push-streamlit.result }}"
+            echo ""
+            echo "======================================================================"
             exit 1
           fi
